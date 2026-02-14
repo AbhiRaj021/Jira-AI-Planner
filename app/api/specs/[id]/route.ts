@@ -60,3 +60,29 @@ export async function GET(
         );
     }
 }
+
+export async function DELETE(
+    req: Request,
+    { params }: { params: Promise<{ id: string }> }
+) {
+    try {
+        await dbConnect();
+        const { id } = await params;
+        const deletedSpec = await Spec.findByIdAndDelete(id);
+
+        if (!deletedSpec) {
+            return NextResponse.json(
+                { error: 'Spec not found' },
+                { status: 404 }
+            );
+        }
+
+        return NextResponse.json({ message: 'Spec deleted successfully' });
+    } catch (error) {
+        console.error('Database Error:', error);
+        return NextResponse.json(
+            { error: 'Failed to delete spec' },
+            { status: 500 }
+        );
+    }
+}

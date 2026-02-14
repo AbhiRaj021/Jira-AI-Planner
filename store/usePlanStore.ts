@@ -19,24 +19,25 @@ interface PlanState {
     error: string | null;
     currentStep: number;
 
-    // Actions
+    
     setFormData: (data: any) => void;
     resetForm: () => void;
     setCurrentStep: (step: number) => void;
 
-    // API Actions
+    
     generatePlan: () => Promise<void>;
     fetchHistory: () => Promise<void>;
     selectPlan: (id: string) => Promise<void>;
     savePlanUpdates: (extraUpdates?: any) => Promise<void>;
 
-    // local plan manipulation
+    
     updateLocalPlan: (updates: Partial<Plan>) => void;
     editTask: (taskId: string, field: string, value: string) => void;
     deleteTask: (taskId: string) => void;
     addTask: (column: 'frontend' | 'backend' | 'database') => void;
     reorderTasks: (container: string, activeIndex: number, overIndex: number) => void;
     moveTask: (activeId: string, overId: string, activeContainer: string, overContainer: string, newIndex: number) => void;
+    deleteHistoryItem: (id: string) => Promise<void>;
 }
 
 const initialFormData = {
@@ -83,7 +84,22 @@ export const usePlanStore = create<PlanState>((set, get) => ({
             if (!response.ok) throw new Error('Failed to generate plan');
 
             const data = await response.json();
-            set({ generatedPlan: data, currentStep: 2 });
+
+            const ensureIds = (tasks: any[]) => (tasks || []).map(t => ({
+                ...t,
+                id: t.id || t._id || Math.random().toString(36).substr(2, 9)
+            }));
+
+            const formattedPlan: Plan = {
+                ...data,
+                tasks: {
+                    frontend: ensureIds(data.tasks?.frontend),
+                    backend: ensureIds(data.tasks?.backend),
+                    database: ensureIds(data.tasks?.database),
+                }
+            };
+
+            set({ generatedPlan: formattedPlan, currentStep: 2 });
         } catch (err) {
             set({ error: 'Something went wrong. Please try again.' });
             console.error(err);
@@ -115,15 +131,21 @@ export const usePlanStore = create<PlanState>((set, get) => ({
             const res = await fetch(`/api/specs/${id}`);
             if (res.ok) {
                 const fullSpec = await res.json();
+
+                const ensureIds = (tasks: any[]) => (tasks || []).map(t => ({
+                    ...t,
+                    id: t.id || t._id || Math.random().toString(36).substr(2, 9)
+                }));
+
                 const formattedPlan: Plan = {
                     _id: fullSpec._id,
                     featureName: fullSpec.title,
                     goal: fullSpec.goal,
                     userStories: fullSpec.userStories || [],
                     tasks: {
-                        frontend: (fullSpec.tasks?.frontend || []).map((t: any) => ({ ...t, id: t.id || Math.random().toString(36).substr(2, 9) })),
-                        backend: (fullSpec.tasks?.backend || []).map((t: any) => ({ ...t, id: t.id || Math.random().toString(36).substr(2, 9) })),
-                        database: (fullSpec.tasks?.database || []).map((t: any) => ({ ...t, id: t.id || Math.random().toString(36).substr(2, 9) })),
+                        frontend: ensureIds(fullSpec.tasks?.frontend),
+                        backend: ensureIds(fullSpec.tasks?.backend),
+                        database: ensureIds(fullSpec.tasks?.database),
                     },
                     risks: fullSpec.risks || [],
                     assumptions: fullSpec.assumptions || []
@@ -232,6 +254,10 @@ export const usePlanStore = create<PlanState>((set, get) => ({
         const activeItems = (state.generatedPlan.tasks as any)[activeContainer];
         const activeItem = activeItems.find((t: Task) => t.id === activeId);
 
+        if (!activeItem) return state;
+
+        const updatedItem = { ...activeItem, type: overContainer };
+
         return {
             generatedPlan: {
                 ...state.generatedPlan,
@@ -240,11 +266,28 @@ export const usePlanStore = create<PlanState>((set, get) => ({
                     [activeContainer]: activeItems.filter((item: Task) => item.id !== activeId),
                     [overContainer]: [
                         ...(state.generatedPlan.tasks as any)[overContainer].slice(0, newIndex),
-                        activeItem,
+                        updatedItem,
                         ...(state.generatedPlan.tasks as any)[overContainer].slice(newIndex)
                     ]
                 }
             }
-        };
-    })
+        }
+    }),
+
+    deleteHistoryItem: async (id: string) => {
+        set({ isSaving: true });
+        try {
+            const res = await fetch(`/api/specs/${id}`, {
+                method: 'DELETE',
+            });
+            if (res.ok) {
+                const { fetchHistory } = get();
+                await fetchHistory();
+            }
+        } catch (err) {
+            console.error("Failed to delete history item", err);
+        } finally {
+            set({ isSaving: false });
+        }
+    }
 }));

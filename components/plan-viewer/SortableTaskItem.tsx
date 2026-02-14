@@ -50,7 +50,15 @@ export function SortableTaskItem({ task, onDelete, onEdit }: SortableTaskItemPro
                         onChange={(e) => onEdit(task.id, 'description', e.target.value)}
                     />
                     <div className="flex justify-between items-center">
-                        <ComplexityBadge level={task.complexity as any} />
+                        <ComplexityBadge
+                            level={task.complexity as any}
+                            onClick={() => {
+                                const levels = ['low', 'medium', 'high'];
+                                const currentIndex = levels.indexOf(task.complexity);
+                                const nextIndex = (currentIndex + 1) % levels.length;
+                                onEdit(task.id, 'complexity', levels[nextIndex]);
+                            }}
+                        />
                         <button
                             onClick={() => onDelete(task.id)}
                             className="p-1 hover:bg-red-50 text-zinc-400 hover:text-red-500 rounded transition-colors"

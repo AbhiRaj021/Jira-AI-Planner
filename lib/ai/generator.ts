@@ -77,13 +77,13 @@ export async function generatePlan(
 
         const responseText = response.choices[0].message.content || "{}";
 
-        
+
         let jsonString = responseText.trim();
 
-        
+
         jsonString = jsonString.replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
 
-        
+
         const start = jsonString.indexOf('{');
         const end = jsonString.lastIndexOf('}');
 
@@ -93,38 +93,65 @@ export async function generatePlan(
 
         jsonString = jsonString.substring(start, end + 1);
 
-        
+
         jsonString = jsonString.replace(/,\s*([\]}])/g, '$1');
 
-        
+
         jsonString = jsonString.replace(/[\u0000-\u001F\u007F-\u009F]/g, " ");
 
         try {
-            const plan = JSON.parse(jsonString);
+            let plan = JSON.parse(jsonString);
+            plan = normalizePlan(plan);
             PlanSchema.parse(plan);
             return plan;
         } catch (parseError) {
-            console.error("JSON Parse Error. Raw Response:", responseText);
-            console.error("Attempted to parse clean string:", jsonString);
-
+            console.error("JSON/Schema Error. Raw Response:", responseText);
+            console.error("Cleaned Content:", jsonString);
             
-            try {
-                
-                const semiClean = jsonString
-                    .replace(/\\'/g, "'")
-                    .replace(/\n/g, "\\n")
-                    .replace(/\r/g, "\\r");
-                const plan = JSON.parse(semiClean);
-                PlanSchema.parse(plan);
-                return plan;
-            } catch (innerError) {
-                throw new Error(`Failed to parse AI response as JSON: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
+            if (parseError instanceof SyntaxError) {
+                try {
+                    const extraClean = jsonString
+                        .replace(/\\'/g, "'")
+                        .replace(/\n/g, "\\n")
+                        .replace(/\r/g, "\\r");
+                    let plan = JSON.parse(extraClean);
+                    plan = normalizePlan(plan);
+                    PlanSchema.parse(plan);
+                    return plan;
+                } catch (innerError) {
+                    throw new Error(`Failed to parse AI response as JSON: ${parseError.message}`);
+                }
             }
+
+            throw new Error(`AI generated an invalid plan structure: ${parseError instanceof Error ? parseError.message : String(parseError)}`);
         }
     } catch (error) {
         console.error("Error calling SambaNova:", error);
         throw error;
     }
+}
+
+function normalizePlan(plan: any): any {
+    if (!plan || typeof plan !== 'object') return plan;
+
+    const normalizeTask = (t: any, defaultType: string) => ({
+        ...t,
+        type: ['frontend', 'backend', 'database'].includes(t.type?.toLowerCase())
+            ? t.type.toLowerCase()
+            : defaultType,
+        complexity: ['low', 'medium', 'high'].includes(t.complexity?.toLowerCase())
+            ? t.complexity.toLowerCase()
+            : 'medium'
+    });
+
+    return {
+        ...plan,
+        tasks: {
+            frontend: (plan.tasks?.frontend || []).map((t: any) => normalizeTask(t, 'frontend')),
+            backend: (plan.tasks?.backend || []).map((t: any) => normalizeTask(t, 'backend')),
+            database: (plan.tasks?.database || []).map((t: any) => normalizeTask(t, 'database')),
+        }
+    };
 }
 
 function generateMockPlan(feature: any): Plan {
